@@ -63,6 +63,15 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Reaper: marks runs whose worker died as failed (see backend/app/maintenance.py).
+  maintenance:
+    <<: *backend
+    command: ["python", "-m", "app.maintenance", "--loop", "60"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   frontend:
     build:
       context: ./frontend
