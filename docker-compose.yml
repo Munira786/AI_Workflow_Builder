@@ -1,0 +1,86 @@
+# Full stack for local development / single-host deployment:
+#   docker compose up --build
+# Frontend: http://localhost:3000   API: http://localhost:8000/docs
+
+x-backend: &backend
+  build: ./backend
+  environment:
+    ENVIRONMENT: ${ENVIRONMENT:-development}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-workflows}
+    REDIS_URL: redis://redis:6379/0
+    SECRET_KEY: ${SECRET_KEY:-dev-only-secret-key-change-me-0123456789}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-workflows}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-workflows}"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  backend:
+    <<: *backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 5
+
+  worker:
+    <<: *backend
+    command: ["rq", "worker", "--url", "redis://redis:6379/0", "runs"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Reaper: marks runs whose worker died as failed (see backend/app/maintenance.py).
+  maintenance:
+    <<: *backend
+    command: ["python", "-m", "app.maintenance", "--loop", "60"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
