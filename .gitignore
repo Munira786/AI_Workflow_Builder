@@ -17,3 +17,8 @@
 *.log
 .DS_Store
 Thumbs.db
+
+# Local databases and tool caches
+*.db
+.pytest_cache/
+.ruff_cache/
