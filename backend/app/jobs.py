@@ -9,10 +9,12 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import BackgroundTasks
+from rq.timeouts import JobTimeoutException
 
 from app.config import get_settings
 from app.db import SessionLocal
 from app.engine.executor import PipelineError, execute_pipeline
+from app.maintenance import fail_unfinished_nodes
 from app.models import Run, RunStatus
 from app.schemas import Graph
 
@@ -36,19 +38,34 @@ def process_run(run_id: str) -> None:
             run.node_states = {**run.node_states, node_id: state}
             db.commit()
 
+        outputs: dict = {}
+        error: str | None = None
         try:
             result = execute_pipeline(Graph.model_validate(run.graph), run.inputs, on_state)
+            outputs = result.outputs
         except PipelineError as exc:
-            run.status = RunStatus.FAILED
-            run.error = str(exc)
+            error = str(exc)
+        except JobTimeoutException:
+            # RQ interrupts the job when it exceeds run_job_timeout_seconds.
+            error = f"The run timed out after {get_settings().run_job_timeout_seconds} seconds"
         except Exception:
             logger.exception("Run %s crashed", run_id)
-            run.status = RunStatus.FAILED
-            run.error = "Internal error while executing the pipeline"
-        else:
-            run.status = RunStatus.SUCCEEDED
-            run.outputs = result.outputs
+            error = "Internal error while executing the pipeline"
 
+        # Re-read the row: if the reaper (app/maintenance.py) already gave up on this run,
+        # keep its verdict instead of overwriting it with a late result.
+        db.refresh(run)
+        if run.status != RunStatus.RUNNING:
+            logger.warning("Run %s was already %s; discarding late result", run_id, run.status)
+            return
+
+        if error is None:
+            run.status = RunStatus.SUCCEEDED
+            run.outputs = outputs
+        else:
+            run.status = RunStatus.FAILED
+            run.error = error
+            run.node_states = fail_unfinished_nodes(run.node_states, error)
         run.finished_at = datetime.now(UTC)
         db.commit()
     finally:
