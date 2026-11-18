@@ -5,13 +5,16 @@ import tempfile
 _db_file = os.path.join(tempfile.mkdtemp(), "test.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_file}"
 os.environ.pop("REDIS_URL", None)
+os.environ.pop("SENTRY_DSN", None)
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-at-least-32-bytes"
+os.environ["ENVIRONMENT"] = "test"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.rate_limit import get_rate_limiter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +22,14 @@ def fresh_db():
     Base.metadata.create_all(engine)
     yield
     Base.metadata.drop_all(engine)
+
+
+@pytest.fixture(autouse=True)
+def fresh_limiter():
+    # Rate-limit counters must not leak from one test into the next.
+    get_rate_limiter.cache_clear()
+    yield
+    get_rate_limiter.cache_clear()
 
 
 @pytest.fixture

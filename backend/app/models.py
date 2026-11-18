@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,8 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
+    # Embedded in every token; bumping it (logout) invalidates all tokens issued before.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     pipelines: Mapped[list["Pipeline"]] = relationship(
@@ -34,6 +36,7 @@ class User(Base):
 
 class Pipeline(Base):
     __tablename__ = "pipelines"
+    __table_args__ = (Index("ix_pipelines_owner_updated", "owner_id", "updated_at", "id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -53,11 +56,13 @@ class RunStatus:
     SUCCEEDED = "succeeded"
     FAILED = "failed"
 
+    ACTIVE = {QUEUED, RUNNING}
     TERMINAL = {SUCCEEDED, FAILED}
 
 
 class Run(Base):
     __tablename__ = "runs"
+    __table_args__ = (Index("ix_runs_owner_created", "owner_id", "created_at", "id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -70,6 +75,9 @@ class Run(Base):
     outputs: Mapped[dict] = mapped_column(JSONType, default=dict)
     node_states: Mapped[dict] = mapped_column(JSONType, default=dict)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # LLM usage, summed over the run's nodes (used for the daily token budget).
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

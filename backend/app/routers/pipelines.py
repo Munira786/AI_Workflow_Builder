@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.graph import is_dag
 from app.models import Pipeline, User
+from app.pagination import paginate
 from app.schemas import (
     Graph,
+    Page,
     ParseResult,
     PipelineCreate,
     PipelineOut,
@@ -31,14 +33,17 @@ def get_owned_pipeline(pipeline_id: str, user: User, db: Session) -> Pipeline:
     return pipeline
 
 
-@router.get("", response_model=list[PipelineSummary])
+@router.get("", response_model=Page[PipelineSummary])
 def list_pipelines(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
-) -> list[Pipeline]:
-    query = (
-        select(Pipeline).where(Pipeline.owner_id == user.id).order_by(Pipeline.updated_at.desc())
-    )
-    return list(db.scalars(query))
+    limit: int = 50,
+    cursor: str | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Most recently updated first. Pass `next_cursor` back as `cursor` for the next page."""
+    query = select(Pipeline).where(Pipeline.owner_id == user.id)
+    items, next_cursor = paginate(db, query, Pipeline.updated_at, Pipeline.id, limit, cursor)
+    return {"items": items, "next_cursor": next_cursor}
 
 
 @router.post("", response_model=PipelineOut, status_code=status.HTTP_201_CREATED)

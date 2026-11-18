@@ -1,12 +1,12 @@
-// Header.js
 // Pipeline name, save / open / new / delete, and the signed-in user.
 
 import { useCallback, useEffect, useState } from 'react';
-import { useStore } from './store';
 import { shallow } from 'zustand/shallow';
+import { useStore } from './store';
 import { api, serializeGraph } from './api';
 import { useAuth } from './AuthContext';
-import { buttonStyle, inputStyle } from './styles';
+
+const PIPELINE_LIST_LIMIT = 100;
 
 const selector = (state) => ({
   nodes: state.nodes,
@@ -32,12 +32,32 @@ export const Header = () => {
   const [busy, setBusy] = useState(false);
 
   const refreshList = useCallback(() => {
-    api('/pipelines').then(setPipelines).catch((err) => setMessage(err.message));
+    api(`/pipelines?limit=${PIPELINE_LIST_LIMIT}`)
+      .then((page) => setPipelines(page.items))
+      .catch((err) => setMessage(err.message));
   }, []);
 
   useEffect(() => {
     refreshList();
   }, [refreshList]);
+
+  // Warn before closing or reloading the tab with unsaved changes.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  // "Saved" fades after a few seconds instead of sticking forever.
+  useEffect(() => {
+    if (message !== 'Saved') return undefined;
+    const timer = setTimeout(() => setMessage(''), 3000);
+    return () => clearTimeout(timer);
+  }, [message]);
 
   const confirmDiscard = () => !dirty || window.confirm('Discard unsaved changes?');
 
@@ -79,36 +99,21 @@ export const Header = () => {
   };
 
   return (
-    <header
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 10,
-        padding: '12px 16px',
-        borderBottom: '1px solid #e5e7eb',
-        background: '#fff',
-      }}
-    >
-      <strong style={{ fontSize: 18, marginRight: 8 }}>AI Workflow Builder</strong>
+    <header className="header">
+      <strong className="header__brand">AI Workflow Builder</strong>
 
       <input
         aria-label="Pipeline name"
         value={pipelineName}
         onChange={(e) => setPipelineName(e.target.value)}
-        style={{ ...inputStyle, minWidth: 200 }}
+        className="input header__name"
       />
-      <button type="button" onClick={save} disabled={busy} style={buttonStyle('primary')}>
+      <button type="button" onClick={save} disabled={busy} className="btn btn--primary">
         {pipelineId ? 'Save' : 'Save as new'}
         {dirty ? ' •' : ''}
       </button>
 
-      <select
-        aria-label="Open pipeline"
-        value=""
-        onChange={(e) => open(e.target.value)}
-        style={inputStyle}
-      >
+      <select aria-label="Open pipeline" value="" onChange={(e) => open(e.target.value)} className="input">
         <option value="">Open…</option>
         {pipelines.map((pipeline) => (
           <option key={pipeline.id} value={pipeline.id}>
@@ -117,23 +122,19 @@ export const Header = () => {
         ))}
       </select>
 
-      <button
-        type="button"
-        onClick={() => confirmDiscard() && newPipeline()}
-        style={buttonStyle('secondary')}
-      >
+      <button type="button" onClick={() => confirmDiscard() && newPipeline()} className="btn">
         New
       </button>
       {pipelineId && (
-        <button type="button" onClick={remove} disabled={busy} style={buttonStyle('danger')}>
+        <button type="button" onClick={remove} disabled={busy} className="btn btn--danger">
           Delete
         </button>
       )}
 
-      {message && <span style={{ fontSize: 14, color: '#6b7280' }}>{message}</span>}
+      {message && <span className="text-muted">{message}</span>}
 
-      <span style={{ marginLeft: 'auto', fontSize: 14, color: '#6b7280' }}>{user?.email}</span>
-      <button type="button" onClick={logout} style={buttonStyle('secondary')}>
+      <span className="header__user text-muted">{user?.email}</span>
+      <button type="button" onClick={() => confirmDiscard() && logout()} className="btn">
         Log out
       </button>
     </header>

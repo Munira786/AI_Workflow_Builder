@@ -88,9 +88,9 @@ def main() -> None:
         "--loop", type=int, metavar="SECONDS", help="repeat forever, SECONDS between passes"
     )
     args = parser.parse_args()
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    from app.observability import setup_observability
+
+    setup_observability()
 
     while True:
         try:

@@ -38,7 +38,7 @@ jobs:
           context: ./${{ matrix.service }}
           push: true
           build-args: |
-            REACT_APP_API_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:8000' }}
+            VITE_API_URL=${{ vars.PUBLIC_API_URL || 'http://localhost:8000' }}
           tags: |
             ${{ steps.meta.outputs.image }}:latest
             ${{ steps.meta.outputs.image }}:${{ github.event.workflow_run.head_sha }}
