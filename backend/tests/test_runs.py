@@ -312,3 +312,21 @@ def test_runs_are_private(client, auth, fake_claude):
     run = start_run(client, auth, graph=text_llm_graph(), inputs={"topic": "x"})
     other = register(client, "other@example.com")
     assert client.get(f"/api/v1/runs/{run['id']}", headers=other).status_code == 404
+
+
+def test_history_items_carry_pipeline_name_and_utc_times(client, auth):
+    graph = {"nodes": [{"id": "t", "type": "text", "data": {"text": "hi"}}], "edges": []}
+    pipeline_id = client.post(
+        "/api/v1/pipelines", json={"name": "Greeter", "graph": graph}, headers=auth
+    ).json()["id"]
+    start_run(client, auth, pipeline_id=pipeline_id)
+    start_run(client, auth, graph=graph)  # unsaved editor graph
+
+    items = client.get("/api/v1/runs", headers=auth).json()["items"]
+    assert [item["pipeline_name"] for item in items] == [None, "Greeter"]
+    # Timestamps carry an explicit UTC offset, so browsers don't read them as local time.
+    assert all(item["created_at"].endswith(("Z", "+00:00")) for item in items)
+
+    client.delete(f"/api/v1/pipelines/{pipeline_id}", headers=auth)
+    items = client.get("/api/v1/runs", headers=auth).json()["items"]
+    assert [item["pipeline_name"] for item in items] == [None, None]

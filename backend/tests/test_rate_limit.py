@@ -22,6 +22,15 @@ class FakeClock:
         return self.now
 
 
+@pytest.fixture(autouse=True)
+def frozen_clock(monkeypatch):
+    """API-level tests use a limiter with a frozen clock, so a slow test run can't straddle a
+    window boundary (which would reset the count and make the limits look broken)."""
+    limiter = MemoryRateLimiter(clock=FakeClock(now=1_000_010.0))
+    monkeypatch.setattr("app.rate_limit.get_rate_limiter", lambda: limiter)
+    return limiter
+
+
 # ---------- The limiter itself (app/rate_limit.py) ----------
 # (conftest.py resets the shared limiter before every test.)
 
