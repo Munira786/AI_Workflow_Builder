@@ -1,9 +1,28 @@
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.config import get_settings
+
+
+def _assume_utc(value: datetime | None) -> datetime | None:
+    # SQLite hands back naive datetimes; without an offset, browsers would read them as
+    # local time. Everything is stored in UTC, so say so explicitly in the JSON.
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+UTCDateTime = Annotated[datetime, AfterValidator(_assume_utc)]
 
 # bcrypt only uses the first 72 BYTES of a password (and bcrypt>=5 raises beyond that).
 # Multi-byte characters count several times, so the limit is checked on the UTF-8 encoding.
@@ -113,7 +132,7 @@ class UserOut(BaseModel):
 
     id: str
     email: EmailStr
-    created_at: datetime
+    created_at: UTCDateTime
 
 
 class Token(BaseModel):
@@ -145,8 +164,8 @@ class PipelineSummary(BaseModel):
 
     id: str
     name: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
 
 class PipelineOut(PipelineSummary):
@@ -178,6 +197,7 @@ class RunOut(BaseModel):
 
     id: str
     pipeline_id: str | None
+    pipeline_name: str | None = None  # None when unsaved or the pipeline was deleted
     status: str
     inputs: dict[str, Any]
     outputs: dict[str, Any]
@@ -185,6 +205,6 @@ class RunOut(BaseModel):
     error: str | None
     input_tokens: int
     output_tokens: int
-    created_at: datetime
-    started_at: datetime | None
-    finished_at: datetime | None
+    created_at: UTCDateTime
+    started_at: UTCDateTime | None
+    finished_at: UTCDateTime | None
