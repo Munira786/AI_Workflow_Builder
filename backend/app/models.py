@@ -81,3 +81,10 @@ class Run(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Loaded in one extra query per list ("selectin"), for the run history's pipeline names.
+    pipeline: Mapped["Pipeline | None"] = relationship(lazy="selectin")
+
+    @property
+    def pipeline_name(self) -> str | None:
+        return self.pipeline.name if self.pipeline else None

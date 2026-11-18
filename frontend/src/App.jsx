@@ -6,6 +6,7 @@ import { LoginPage } from './LoginPage';
 import { Toolbar } from './Toolbar';
 import { Canvas } from './Canvas';
 import { RunPanel } from './RunPanel';
+import { RunHistory } from './RunHistory';
 import { useStore } from './store';
 
 const Editor = () => {
@@ -42,6 +43,9 @@ const Editor = () => {
         <Canvas />
       </ErrorBoundary>
       <RunPanel />
+      <ErrorBoundary>
+        <RunHistory />
+      </ErrorBoundary>
     </div>
   );
 };

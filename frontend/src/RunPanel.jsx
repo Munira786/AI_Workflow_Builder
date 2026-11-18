@@ -5,35 +5,35 @@ import { useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useStore } from './store';
 import { api, serializeGraph } from './api';
-import { effectiveName } from './catalog';
+import { formatTokens } from './format';
 
 const selector = (state) => ({
   nodes: state.nodes,
   edges: state.edges,
-  specs: state.specs,
+  inputNames: state.inputNames,
   run: state.run,
   runError: state.runError,
   polling: state.polling,
   runInputs: state.runInputs,
   setRunInput: state.setRunInput,
   startRun: state.startRun,
+  historyOpen: state.historyOpen,
+  toggleHistory: state.toggleHistory,
 });
 
 export const RunPanel = () => {
-  const { nodes, edges, specs, run, runError, polling, runInputs, setRunInput, startRun } =
-    useStore(selector, shallow);
+  const {
+    nodes, edges, inputNames: getInputNames, run, runError, polling, runInputs, setRunInput, startRun,
+    historyOpen, toggleHistory,
+  } = useStore(selector, shallow);
   const [analysis, setAnalysis] = useState(null);
   const [analyzeError, setAnalyzeError] = useState('');
 
-  const inputSpec = specs.customInput;
-  const inputNames = inputSpec
-    ? [...new Set(nodes.filter((n) => n.type === inputSpec.type).map((n) => effectiveName(inputSpec, n)))]
-    : [];
+  const inputNames = getInputNames(); // re-evaluated on every render; nodes are subscribed above
 
   const onRun = () => {
     setAnalysis(null);
-    const inputs = Object.fromEntries(inputNames.map((name) => [name, runInputs[name] ?? '']));
-    startRun(inputs);
+    startRun();
   };
 
   const analyze = async () => {
@@ -45,9 +45,7 @@ export const RunPanel = () => {
     }
   };
 
-  const tokens = run && run.input_tokens + run.output_tokens > 0
-    ? `${run.input_tokens.toLocaleString()} in / ${run.output_tokens.toLocaleString()} out tokens`
-    : null;
+  const tokens = run ? formatTokens(run) : null;
 
   return (
     <section className="run-panel" aria-label="Run">
@@ -72,6 +70,15 @@ export const RunPanel = () => {
         </button>
         <button type="button" onClick={analyze} disabled={nodes.length === 0} className="btn">
           Analyze
+        </button>
+        <button
+          type="button"
+          onClick={toggleHistory}
+          className={`btn${historyOpen ? ' btn--active' : ''}`}
+          aria-expanded={historyOpen}
+          aria-controls="run-history"
+        >
+          History
         </button>
 
         {run && <span className={`run-panel__status status-${run.status}`}>Status: {run.status}</span>}
