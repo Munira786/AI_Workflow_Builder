@@ -1,6 +1,6 @@
 # Dependencies & build
 /node_modules
-/build
+/dist
 
 # Environment
 .env

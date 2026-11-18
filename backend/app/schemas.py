@@ -1,9 +1,13 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.config import get_settings
+
+# bcrypt only uses the first 72 BYTES of a password (and bcrypt>=5 raises beyond that).
+# Multi-byte characters count several times, so the limit is checked on the UTF-8 encoding.
+MAX_PASSWORD_BYTES = 72
 
 
 class Node(BaseModel):
@@ -12,8 +16,17 @@ class Node(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str = Field(min_length=1, max_length=200)
-    type: str | None = None
+    type: str | None = Field(default=None, max_length=100)
     data: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("data")
+    @classmethod
+    def limit_field_sizes(cls, data: dict[str, Any]) -> dict[str, Any]:
+        limit = get_settings().max_field_chars
+        for key, value in data.items():
+            if isinstance(value, str) and len(value) > limit:
+                raise ValueError(f"Node field '{key}' is longer than {limit} characters")
+        return data
 
 
 class Edge(BaseModel):
@@ -56,11 +69,43 @@ class ParseResult(BaseModel):
     is_dag: bool
 
 
+# ---- Node type catalogue (single source of truth for the editor) ----
+
+class NodeTypeOut(BaseModel):
+    type: str
+    label: str
+    description: str
+    executable: bool
+    inputs: list[str]
+    outputs: list[str]
+    dynamic_inputs: bool
+    name_field: str | None
+    name_prefix: str | None
+    default_data: dict[str, Any]
+
+
+class NodeCatalogOut(BaseModel):
+    template_variable_pattern: str
+    default_model: str
+    allowed_models: list[str]
+    node_types: list[NodeTypeOut]
+
+
 # ---- Auth ----
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, password: str) -> str:
+        if len(password.encode()) > MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"Password is too long (at most {MAX_PASSWORD_BYTES} bytes; "
+                "accented letters and emoji count as several)"
+            )
+        return password
 
 
 class UserOut(BaseModel):
@@ -74,6 +119,13 @@ class UserOut(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+# ---- Pagination ----
+
+class Page[T](BaseModel):
+    items: list[T]
+    next_cursor: str | None = None
 
 
 # ---- Pipelines ----
@@ -110,7 +162,7 @@ class RunCreate(BaseModel):
     saved pipeline for history.
     """
 
-    pipeline_id: str | None = None
+    pipeline_id: str | None = Field(default=None, min_length=1, max_length=36)
     graph: Graph | None = None
     inputs: dict[str, str] = Field(default_factory=dict)
 
@@ -131,6 +183,8 @@ class RunOut(BaseModel):
     outputs: dict[str, Any]
     node_states: dict[str, Any]
     error: str | None
+    input_tokens: int
+    output_tokens: int
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None

@@ -37,3 +37,25 @@ def test_protected_routes_need_token(client):
     assert client.get("/api/v1/pipelines").status_code == 401
     bad = {"Authorization": "Bearer not-a-token"}
     assert client.get("/api/v1/pipelines", headers=bad).status_code == 401
+
+
+def test_password_over_72_bytes_is_422_not_500(client):
+    for password in ["a" * 100, "😀" * 40]:  # 40 emoji = 40 chars but 160 bytes
+        response = client.post(
+            "/api/v1/auth/register", json={"email": "long@example.com", "password": password}
+        )
+        assert response.status_code == 422, response.text
+        assert "too long" in response.text
+
+
+def test_logout_revokes_existing_tokens(client):
+    headers = register(client)
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+    assert client.post("/api/v1/auth/logout", headers=headers).status_code == 204
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+
+    response = client.post(
+        "/api/v1/auth/login", data={"username": "user@example.com", "password": "password123"}
+    )
+    fresh = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    assert client.get("/api/v1/auth/me", headers=fresh).status_code == 200

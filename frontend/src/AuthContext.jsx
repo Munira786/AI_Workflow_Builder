@@ -1,8 +1,8 @@
-// AuthContext.js
 // Holds the logged-in user and exposes login / register / logout.
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api, onUnauthorized, tokenStorage } from './api';
+import { useStore } from './store';
 
 const AuthContext = createContext(null);
 
@@ -10,15 +10,22 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => tokenStorage.get());
   const [user, setUser] = useState(null);
 
-  const logout = useCallback(() => {
+  const clearSession = useCallback(() => {
     tokenStorage.set(null);
     setToken(null);
     setUser(null);
+    useStore.getState().resetSession();
   }, []);
 
+  const logout = useCallback(async () => {
+    // Revoke the token server-side (all devices); clear locally even if that call fails.
+    await api('/auth/logout', { method: 'POST' }).catch(() => {});
+    clearSession();
+  }, [clearSession]);
+
   useEffect(() => {
-    onUnauthorized(logout);
-  }, [logout]);
+    onUnauthorized(clearSession);
+  }, [clearSession]);
 
   useEffect(() => {
     if (!token) return;

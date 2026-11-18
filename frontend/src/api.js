@@ -1,7 +1,6 @@
-// api.js
 // Small fetch wrapper for the backend API: base URL from env, bearer token, readable errors.
 
-export const API_URL = (process.env.REACT_APP_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
 const TOKEN_KEY = 'awb_token';
 
@@ -35,12 +34,13 @@ export const onUnauthorized = (handler) => {
   unauthorizedHandler = handler;
 };
 
-const formatDetail = (detail) => {
+const formatDetail = (detail, status) => {
   if (Array.isArray(detail)) {
     // FastAPI validation errors: [{loc, msg}, ...]
     return detail.map((item) => item.msg?.replace(/^Value error, /, '') || String(item)).join('; ');
   }
-  return typeof detail === 'string' ? detail : 'Request failed';
+  if (typeof detail === 'string') return detail;
+  return status >= 500 ? 'The server had a problem; please try again' : 'Request failed';
 };
 
 export async function api(path, { method = 'GET', body, form } = {}) {
@@ -68,7 +68,10 @@ export async function api(path, { method = 'GET', body, form } = {}) {
 
   if (!response.ok) {
     if (response.status === 401 && token) unauthorizedHandler();
-    throw new ApiError(formatDetail(data.detail), response.status);
+    let message = formatDetail(data.detail, response.status);
+    const retryAfter = response.headers.get('Retry-After');
+    if (response.status === 429 && retryAfter) message += ` (try again in ${retryAfter}s)`;
+    throw new ApiError(message, response.status);
   }
   return data;
 }
